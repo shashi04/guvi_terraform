@@ -1,0 +1,103 @@
+Terraform flow:
+================
+
+terraform init 
+
+terraform plan
+
+terraform apply
+
+terraform destroy
+
+========================================================================
+
+Terraform Apply with customer tfvar:
+=====================================
+
+terraform apply -var-file="dev.tfvars"
+
+terraform apply -var-file="qa.tfvars"
+
+========================================================================
+
+terraform output
+=================
+
+terraform output  # View Output later
+
+terraform output ec2_public_ip # Specific Output
+
+========================================================================
+
+Provisioners:
+==============
+
+Runs a script or command after a resource is created.
+
+Types:
+=======
+
+local-exec  = Runs on your local machine
+
+remote-exec = Runs on remote server
+
+
+========================================================================
+local_exec:
+------------
+
+resource "aws_instance" "demo" {
+  ami           = "ami-0abcdef"
+  instance_type = "t2.micro"
+
+  provisioner "local-exec" {
+    command = "echo EC2 Created > result.txt"
+  }
+}
+
+
+========================================================================
+remote_exec:
+--------------
+
+resource "aws_instance" "demo" {
+  ami           = "ami-0abcdef"
+  instance_type = "t2.micro"
+  key_name      = "my-key"
+
+  connection {
+    type        = "ssh"
+    user        = "ubuntu"
+    private_key = file("my-key.pem")
+    host        = self.public_ip
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo apt update",
+      "sudo apt install -y nginx",
+      "sudo systemctl start nginx"
+    ]
+  }
+}
+
+=============================================================================
+
+Environment Variables
+======================
+
+Terraform can read environment variables automatically.
+
+TF_VAR_Name
+
+Linux:
+
+export TF_VAR_instance_type=t2.micro
+
+Powershell:
+
+setx TF_VAR_instance_type t2.micro
+
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+

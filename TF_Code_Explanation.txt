@@ -1,0 +1,348 @@
+TERRAFORM CONFIGURATION – DETAILED EXPLANATION
+================================================
+
+1. OVERALL WHAT THIS TERRAFORM SETUP DOES
+===========================================
+
+This Terraform project performs the following tasks:
+
+-> Uses AWS as the cloud provider
+-> Launches an EC2 instance using:
+    - An existing Security Group
+    - A key pair for SSH access
+    - Installs and starts NGINX automatically on the EC2 instance
+
+-> Creates an S3 bucket
+-> Supports multiple environments (Dev / QA) using separate .tfvars files
+-> Exposes useful outputs such as:
+    - EC2 public IP
+    - S3 bucket ARN
+
+================================================================================================
+2. LOCALS BLOCK
+=================
+
+locals {
+instance_type = var.instance_type
+region = var.region
+}
+
+Purpose:
+=========
+
+-> locals are computed or aliased values used to avoid repetition.
+-> In this case, they simply mirror variables for cleaner references.
+
+Why use locals?
+================
+
+-> Improves readability
+-> Helpful when values are later derived or manipulated
+
+Example usage:
+===============
+
+instance_type = local.instance_type
+
+================================================================================================
+3. AWS PROVIDER CONFIGURATION
+===============================
+
+provider "aws" {
+region = local.region
+}
+
+Purpose:
+=========
+
+-> Tells Terraform:
+    - Which cloud provider to use → AWS
+    - Which region to deploy resources in
+
+Region Source:
+===============
+
+-> Region value is taken from:
+    - dev.tfvars or qa.tfvars
+-> Passed via local.region
+
+================================================================================================
+4. FETCH EXISTING SECURITY GROUP (DATA SOURCE)
+===============================================
+
+data "aws_security_group" "existing_sg" {
+id = "sg-0abc1234def567890"
+}
+
+Purpose:
+=========
+
+-> Reads an already-existing Security Group
+-> Does NOT create a new one
+
+Why use a data source?
+=======================
+
+-> When infrastructure already exists
+-> Common in enterprise environments where:
+    - Networking is centrally managed
+    - DevOps teams are not allowed to create Security Groups
+
+================================================================================================
+5. EC2 INSTANCE RESOURCE
+=========================
+
+resource "aws_instance" "demo_ec2"
+
+This block creates an EC2 instance.
+
+5.1 AMI AND INSTANCE TYPE
+==========================
+
+ami = "ami-0abcdef12345"
+instance_type = local.instance_type
+
+ami: 
+  Operating system image (example placeholder here)
+
+instance_type: 
+  Comes from environment-specific .tfvars
+
+Examples:
+==========
+
+Dev → t2.micro
+QA → t2.micro
+
+5.2 SSH KEY PAIR
+=================
+
+key_name = "my-key-pair"
+
+-> Refers to an existing EC2 key pair
+-> Used for SSH access
+-> Must already exist in AWS
+
+5.3 ATTACH EXISTING SECURITY GROUP
+=====================================
+
+vpc_security_group_ids = [
+data.aws_security_group.existing_sg.id
+]
+
+-> Attaches the fetched existing Security Group
+-> Controls:
+    - SSH access (port 22)
+    - HTTP access (port 80)
+
+5.4 TAGS
+=========
+
+tags = {
+Name = var.instance_name
+}
+
+-> Adds a Name tag to the EC2 instance
+-> Value comes from .tfvars:
+    - Dev → Dev-Instance
+    - QA → QA-Instance
+
+================================================================================================
+6. SSH CONNECTION BLOCK
+=========================
+
+connection {
+type = "ssh"
+user = "ubuntu"
+private_key = file("my-key.pem")
+host = self.public_ip
+}
+
+Purpose:
+=========
+
+-> Defines how Terraform connects to the EC2 instance
+-> Used by the remote-exec provisioner
+
+Key Details:
+=============
+
+-> user = "ubuntu"
+    - Default user for Ubuntu AMI
+-> private_key
+    - Local PEM file
+-> host
+    - EC2 public IP after creation
+
+Important:
+============
+
+-> The private key file must have correct permissions:
+-> chmod 400 my-key.pem
+
+================================================================================================
+7. REMOTE PROVISIONER (INSTALL NGINX)
+======================================
+
+provisioner "remote-exec"
+
+Purpose:
+=========
+
+-> Executes commands inside the EC2 instance
+-> Runs only once during resource creation
+
+Commands Explained:
+====================
+
+sudo apt-get update -y 
+  Updates the package index
+
+sudo apt-get install -y nginx
+  Installs NGINX
+
+sudo systemctl start nginx
+  Starts the NGINX service
+
+sudo systemctl enable nginx
+  Enables NGINX to start on reboot
+
+Result:
+========
+
+-> EC2 instance comes up with NGINX already running
+-> Accessible via:
+    http://<EC2_PUBLIC_IP>
+
+================================================================================================
+8. S3 BUCKET RESOURCE
+=======================
+
+resource "aws_s3_bucket" "demo_bucket" {
+bucket = "my-demo-bucket-123456"
+}
+
+Purpose:
+=========
+
+-> Creates an S3 bucket
+-> Bucket name must be globally unique
+
+Use Cases:
+===========
+
+-> Logs
+-> Artifacts
+-> Backups
+-> Terraform state (future enhancement)
+
+================================================================================================
+9. VARIABLES (variables.tf)
+============================
+
+REGION VARIABLE
+----------------
+
+variable "region" {
+type = string
+default = "us-east-1"
+}
+
+-> Default value exists
+-> Overridden by .tfvars files
+
+INSTANCE TYPE VARIABLE
+-----------------------
+
+variable "instance_type" {
+type = string
+}
+
+-> Mandatory variable
+-> Defined per environment
+
+INSTANCE NAME VARIABLE
+-----------------------
+
+variable "instance_name" {
+type = string
+}
+
+-> Used for tagging
+-> Helps identify EC2 instances in AWS Console
+
+================================================================================================
+10. OUTPUTS (output.tf)
+========================
+
+EC2 PUBLIC IP OUTPUT
+---------------------
+
+output "ec2_public_ip" {
+value = aws_instance.demo_ec2.public_ip
+}
+
+-> Displays the EC2 public IP after deployment
+-> Useful for:
+    - SSH access
+    - Browser access
+
+S3 BUCKET ARN OUTPUT
+---------------------
+
+output "s3_bucket_arn" {
+value = aws_s3_bucket.demo_bucket.arn
+}
+
+-> Shows the unique AWS identifier of the S3 bucket
+-> Used for IAM policies or integrations
+
+================================================================================================
+11. ENVIRONMENT VARIABLE FILES
+===============================
+
+DEV.TFVARS
+------------
+
+instance_type = "t2.micro"
+region = "ap-south-1"
+instance_name = "Dev-Instance"
+
+QA.TFVARS
+-----------
+
+instance_type = "t2.micro"
+region = "ap-south-1"
+instance_name = "QA-Instance"
+
+How They Work:
+===============
+
+-> Same Terraform code
+-> Different values per environment
+-> Selected using:
+    terraform apply -var-file=dev.tfvars
+    terraform apply -var-file=qa.tfvars
+
+================================================================================================
+12. END-TO-END FLOW
+====================
+
+-> Terraform reads variables from .tfvars
+-> Configures AWS provider
+-> Fetches existing Security Group
+-> Creates EC2 instance
+-> SSHs into EC2
+-> Installs and starts NGINX
+-> Creates S3 bucket
+-> Prints outputs
+
+================================================================================================
+13. DEVOPS BEST PRACTICE NOTES
+================================
+
+-> Prefer user_data over remote-exec in production
+-> Store Terraform state in S3 with DynamoDB locking
+-> Use separate AWS accounts for Dev and QA
+-> Avoid hardcoding AMI IDs
+-> Use data "aws_ami" instead
